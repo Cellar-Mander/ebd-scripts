@@ -717,11 +717,30 @@ def test_verdict(group, kills, covers, unmutated):
             "doesn't guard the change (passes on revert, kills nothing)")
 
 
+def project_dir(path, root):
+    """Where a Stryker report's projectRoot sits in the repository, or "" (the repository itself, or not a Stryker
+    report). load() keeps paths relative to projectRoot, and Stryker.NET's is the project under test."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            project = json.load(f).get("projectRoot") or ""
+    except (ValueError, AttributeError):  # cosmic-ray dumps: JSON lines, or an empty list
+        return ""
+    if not os.path.isabs(project):
+        return ""
+    rel = os.path.relpath(os.path.realpath(project), os.path.realpath(root))
+    return "" if rel == "." else rel
+
+
 def cmd_tests(a, root, cfg):
     with open(a.revert, encoding="utf-8") as f:
         rc = json.load(f)
     path = resolve(a.report, root, cfg)
     mutants, _, files = load(path, root)
+    prefix = project_dir(path, root)
+    if prefix:  # revert-check's paths start at the repository
+        for m in mutants.values():
+            m.file = os.path.join(prefix, m.file)
+        files = {os.path.join(prefix, f) for f in files}
     lines, deleted, unmutated = changed_scope(rc, files)
     scoped = sorted((m for m in mutants.values() if on_changed(m, lines) and not m.out_of_scope()
                      and m.status not in ("Ignored", "CompileError")), key=lambda m: (m.file, m.line, m.col))
